@@ -1923,6 +1923,8 @@ const Expressions = {
         // remove var when icon is clicked
         $("body").on("click", ".delete_gdb_variable", Expressions.click_delete_gdb_variable)
         $("body").on("click", ".toggle_children_visibility", Expressions.click_toggle_children_visibility)
+        $("body").on("click", ".plot_icon", Expressions.click_plot_icon)
+
         Expressions.render()
     },
     /**
@@ -2037,13 +2039,14 @@ const Expressions = {
                                     'in_scope': 'true',
                                     // auto-created expressions aren't rendered in the same spot
                                     'autocreated_for_locals': State.get('expr_autocreated_for_locals'),
-                                    'past_values': [],  // push to this array each time a new value is assigned
+                                    'values': [],  // push to this array each time a new value is assigned
                                 }, obj)
         // A varobj's contents may be provided by a Python-based pretty-printer.
         // In this case the varobj is known as a dynamic varobj.
         // Dynamic varobjs have slightly different semantics in some cases.
         // https://sourceware.org/gdb/onlinedocs/gdb/GDB_002fMI-Variable-Objects.html#GDB_002fMI-Variable-Objects
         new_obj.numchild = obj.dynamic ? parseInt(obj.has_more) : parseInt(obj.numchild)
+        new_obj.values.push(new_obj.value)
         return new_obj
     },
     /**
@@ -2138,9 +2141,9 @@ const Expressions = {
         for(let obj of sorted_expression_objs){
             if(obj.in_scope === 'true' && obj.autocreated_for_locals === false){
                 if(obj.numchild > 0) {
-                    html += Expressions.get_ul_for_var_with_children(obj.expression, obj, is_root)
+                    html += Expressions.get_ul_for_var_with_children(obj.expression, obj, is_root, true)
                 }else{
-                    html += Expressions.get_ul_for_var_without_children(obj.expression, obj, is_root)
+                    html += Expressions.get_ul_for_var_without_children(obj.expression, obj, is_root, true)
                 }
             }else if (obj.in_scope === 'invalid'){
                 Expressions.delete_gdb_variable(obj.name)
@@ -2155,7 +2158,7 @@ const Expressions = {
      * get unordered list for a variable that has children
      * @return unordered list, expanded or collapsed based on the key "show_children_in_ui"
      */
-    get_ul_for_var_with_children: function(expression, mi_obj, is_root=false){
+    get_ul_for_var_with_children: function(expression, mi_obj, is_root=false, can_plot=false){
         let child_tree = ''
         if(mi_obj.show_children_in_ui){
             child_tree = '<ul>'
@@ -2177,7 +2180,7 @@ const Expressions = {
         let plus_or_minus = mi_obj.show_children_in_ui ? '-' : '+'
         return Expressions._get_ul_for_var(expression, mi_obj, is_root, plus_or_minus, child_tree, mi_obj.show_children_in_ui, mi_obj.numchild)
     },
-    get_ul_for_var_without_children: function(expression, mi_obj, is_root=false){
+    get_ul_for_var_without_children: function(expression, mi_obj, is_root=false, can_plot=false){
         return Expressions._get_ul_for_var(expression, mi_obj, is_root)
     },
     /**
@@ -2201,6 +2204,9 @@ const Expressions = {
                 <span class='var_type'>
                     ${Util.escape(mi_obj.type || '')}
                 </span>
+
+                <span class='plot_icon pointer' data-gdb_variable_name='${mi_obj.name}'>p</span>
+
 
                 ${delete_button}
 
@@ -2244,6 +2250,20 @@ const Expressions = {
             Expressions.fetch_and_show_children_for_var(gdb_var_name)
         }
     },
+    click_plot_icon: function(e){
+        let gdb_var_name = e.currentTarget.dataset.gdb_variable_name
+        // get data object, which has field that says whether its expanded or not
+        , obj = Expressions.get_obj_from_gdb_var_name(State.get('expressions'), gdb_var_name)
+
+        var data = {
+          labels: [obj.name],
+          series: [
+            obj.values
+          ]
+        };
+
+        new Chartist.Line('.ct-chart', data, {});
+    },
     /**
      * Send command to gdb to give us all the children and values
      * for a gdb variable. Note that the gdb variable itself may be a child.
@@ -2264,9 +2284,7 @@ const Expressions = {
                 if('value' in changelist){
                     // 'value' is about to be wiped. Save the current value
                     // to the past values
-                    obj.past_values.push(obj.value)
-                    console.log(obj.name)
-                    console.log(obj.past_values)
+                    obj.values.push(changelist.value)
                 }
                 // overwrite fields of obj with fields from changelist
                 _.assign(obj, changelist)
