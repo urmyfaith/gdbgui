@@ -2026,7 +2026,8 @@ const Expressions = {
         let new_obj = $.extend(true, {}, obj)
         // obj was copied, now add some additional fields used by gdbgui
 
-        new_obj.can_plot = typeof parseFloat(new_obj.value) === 'number'  // can only be plotted if value is numeric
+        new_obj.can_plot = !window.isNaN(parseFloat(new_obj.value)) // can only be plotted if value is numeric
+        new_obj.dom_id_for_plot = new_obj.name.replace(/\./g, '-')  // replace '.' with '-' since '.' does not work in the DOM
         new_obj.show_plot = false  // used when rendering to decide whether to show plot or not
         // push to this array each time a new value is assigned if value is numeric.
         // Plots use the data.
@@ -2153,6 +2154,7 @@ const Expressions = {
         if(html === ''){
             html = '<span class=placeholder>no expressions in this context</span>'
         }
+        html += '<div id=tooltip style="display: hidden"/>'
         Expressions.el.html(html)
 
         for(let obj of objs_to_render){
@@ -2160,22 +2162,58 @@ const Expressions = {
         }
     },
     make_plot: function(obj){
-            let id = '#' + obj.name
-            , data = []
-            , i = 0
-            for(let val of obj.values){
-                data.push([i, val])
+        let id = '#' + obj.dom_id_for_plot  // this div should have been created already
+        , data = []
+        , i = 0
+        for(let val of obj.values){
+            data.push([i, val])
+            i++
+        }
+        let jq = $(id)
+        $.plot(jq,
+            [
+                {data: data}
+            ],
+            {
+                series: {
+                    lines: { show: true },
+                    points: { show: true }
+                },
+                grid: { hoverable: true, clickable: false }
             }
-            console.log('plot to id' + id)
-            console.log(data)
-            $.plot(id, data);
+        )
+
+        jq.bind('plothover', function (event, pos, item) {
+            if (item) {
+                let x = item.datapoint[0]
+                , y = item.datapoint[1]
+
+                // let d = document.getElementById('tooltip')
+                // d.style.position = "absolute";
+                // d.style.left = item.pageY+'px';
+                // d.style.top = item.pageX+5+'px';
+                // console.log(d.style)
+
+                // var d = document.getElementById('tooltip');
+                // d.style.position = "absolute";
+                // d.style.left = 5+'px';
+                // d.style.top = 30+'px';
+                console.log('plotting')
+                $('#tooltip').html(`(${x}, ${y})`)
+                    .css({top: item.pageY+5, left: item.pageX+5})
+                    .show()
+            } else {
+                $("#tooltip").hide();
+            }
+        });
     },
     plot_var_and_children: function(obj){
+
+        if(obj.show_plot){
+            Expressions.make_plot(obj)
+        }
         for(let child of obj.children){
-            if(child.children.length > 0){
-                Expressions.plot_children(child)
-            }
-            if()
+            Expressions.plot_var_and_children(child)
         }
     },
     /**
@@ -2216,14 +2254,15 @@ const Expressions = {
             ,toggle_classes = numchild > 0 ? 'toggle_children_visibility pointer' : ''
             , val = _.isString(mi_obj.value) ? Memory.make_addrs_into_links(mi_obj.value) : mi_obj.value
             , plot_content = ''
-
+            , plot_button = ''
         if(mi_obj.show_plot){
-            plot_content = `<span class='plot_icon pointer' data-gdb_variable_name='${mi_obj.name}'>hide</span>
-            <div id='${mi_obj.name}' />
-            `
+            // dots are not allowed in the dom as id's. replace with '-'.
+            let id = mi_obj.dom_id_for_plot
+            plot_button = `<span class='plot_icon pointer' data-gdb_variable_name='${mi_obj.name}'>hide</span>`
+            plot_content = `<div id='${id}' class=plot />`
 
         }else if(mi_obj.can_plot && !mi_obj.show_plot){
-            plot_content = `<span class='plot_icon pointer' data-gdb_variable_name='${mi_obj.name}'>plot</span>`
+            plot_button = `<span class='plot_icon pointer' data-gdb_variable_name='${mi_obj.name}'>plot</span>`
         }
 
         return `<ul class='variable'>
@@ -2240,9 +2279,11 @@ const Expressions = {
 
 
                 <div class='right_help_icon_show_on_hover'>
-                    ${plot_content}
+                    ${plot_button}
                     ${delete_button}
                 </div>
+
+                ${plot_content}
 
             </li>
             ${child_tree}

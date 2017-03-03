@@ -264,7 +264,19 @@ ul.variable{
   margin-left: 5px;
   font-style: italic;
 }
-
+.plot{
+  width: 300px;
+  height: 200px;
+  display: visible;
+}
+#tooltip{
+  position: fixed;
+  /*display: none;*/
+  border: 1px solid #fdd;
+  padding: 2px;
+  background-color: #fee;
+  opacity: 0.80;
+}
 #threads ul{
   list-style: none;
   padding: 0;
