@@ -115,7 +115,6 @@ let State = {
         expr_being_created: null,  // the expression being created (i.e. myvar)
         expr_autocreated_for_locals: null,  // true when an expression is being autocreated for a local, false otherwise
         expressions: [],  // array of dicts. Key is expression, value has various keys. See Expressions component.
-
     },
     clear_program_state: function(){
         State.set('current_line_of_source_code', undefined)
@@ -363,7 +362,11 @@ const GdbApi = {
         });
 
         GdbApi.socket.on('disconnect', function(){
+            // we no longer need to warn the user before they exit the page since the gdb process
+            // on the server is already gone
             window.onbeforeunload = () => null
+
+            // show modal
             Modal.render('gdb closed on server', `gdb (pid ${State.get('gdb_pid')}) was closed for this tab because the websocket connection for this tab was disconnected.
                 <p>
                 Each tab has its own instance of gdb running on the backend. Open new tab to start new instance of gdb.`)
@@ -1459,10 +1462,7 @@ const Registers = {
 }
 
 /**
- * Preferences object
- * The intent of this is to have UI inputs that set and store
- * preferences. These preferences will be saved to localStorage
- * between sessions. (This is still in work)
+ * Settings modal when clicking the gear icon
  */
 const Settings = {
     el: $('#gdbgui_settings_button'),
@@ -1483,7 +1483,7 @@ const Settings = {
                 success: (data) => {
                     State.set('latest_gdbgui_version', _.trim(data))
 
-                    if(Settings.needs_update() && State.get('show_gdbgui_upgrades')){
+                    if(Settings.needs_to_update_gdbgui_version() && State.get('show_gdbgui_upgrades')){
                         Modal.render(`Update Available`, Settings.get_upgrade_text())
                     }
                 },
@@ -1491,11 +1491,11 @@ const Settings = {
             })
         }
     },
-    needs_update: function(){
+    needs_to_update_gdbgui_version: function(){
         return State.get('latest_gdbgui_version') !== State.get('gdbgui_version')
     },
     get_upgrade_text: function(){
-        if(Settings.needs_update()){
+        if(Settings.needs_to_update_gdbgui_version()){
             return `gdbgui version ${State.get('latest_gdbgui_version')} is available. You are using ${State.get('gdbgui_version')}. <p>
 
             Run <br>
@@ -1503,7 +1503,7 @@ const Settings = {
             to update.
             `
         }else{
-            return 'There are no updates available at this time.'
+            return `There are no updates available at this time. Using ${State.get('gdbgui_version')}`
         }
     },
     render: function(){
@@ -1583,10 +1583,6 @@ const BinaryLoader = {
         BinaryLoader.render_past_binary_options_datalist()
     },
     past_binaries: [],
-    onclose: function(){
-        localStorage.setItem('past_binaries', JSON.stringify(BinaryLoader.past_binaries) || [])
-        return null
-    },
     keydown_on_binary_input: function(e){
         if(e.keyCode === ENTER_BUTTON_NUM) {
             BinaryLoader.set_target_app()
@@ -1613,6 +1609,8 @@ const BinaryLoader = {
         // save to list of binaries used that autopopulates the input dropdown
         _.remove(BinaryLoader.past_binaries, i => i === binary_and_args)
         BinaryLoader.past_binaries.unshift(binary_and_args)
+        localStorage.setItem('past_binaries', JSON.stringify(BinaryLoader.past_binaries) || [])
+
         BinaryLoader.render_past_binary_options_datalist()
 
         // find the binary and arguments so gdb can be told which is which
@@ -1918,7 +1916,7 @@ const Expressions = {
         // remove var when icon is clicked
         $("body").on("click", ".delete_gdb_variable", Expressions.click_delete_gdb_variable)
         $("body").on("click", ".toggle_children_visibility", Expressions.click_toggle_children_visibility)
-        $("body").on("click", ".plot_icon", Expressions.click_plot_icon)
+        $("body").on("click", ".toggle_plot", Expressions.click_toggle_plot)
 
         Expressions.render()
     },
@@ -2022,30 +2020,35 @@ const Expressions = {
      * @param expr_autocreated_for_locals (bool): true if expression was autocreated for the locals component
      */
     prepare_gdb_obj_for_storage: function(obj, expr_autocreated_for_locals){
-
         let new_obj = $.extend(true, {}, obj)
         // obj was copied, now add some additional fields used by gdbgui
-
-        new_obj.can_plot = !window.isNaN(parseFloat(new_obj.value)) // can only be plotted if value is numeric
-        new_obj.dom_id_for_plot = new_obj.name.replace(/\./g, '-')  // replace '.' with '-' since '.' does not work in the DOM
-        new_obj.show_plot = false  // used when rendering to decide whether to show plot or not
-        // push to this array each time a new value is assigned if value is numeric.
-        // Plots use the data.
-        new_obj.values = new_obj.can_plot ? [new_obj.value] : []
-        new_obj.children = []
-        new_obj.show_children_in_ui = false
-        // this field is not returned when the variable is created, but
-        // it is returned when the variables are updated
-        // it is returned by gdb mi as a string, and we assume it starts out in scope
-        new_obj.in_scope = 'true'
-        new_obj.autocreated_for_locals = State.get('expr_autocreated_for_locals')
-
 
         // A varobj's contents may be provided by a Python-based pretty-printer.
         // In this case the varobj is known as a dynamic varobj.
         // Dynamic varobjs have slightly different semantics in some cases.
         // https://sourceware.org/gdb/onlinedocs/gdb/GDB_002fMI-Variable-Objects.html#GDB_002fMI-Variable-Objects
         new_obj.numchild = obj.dynamic ? parseInt(obj.has_more) : parseInt(obj.numchild)
+        new_obj.children = []  // actual child objects are fetched dynamically when the user requests them
+        new_obj.show_children_in_ui = false
+
+        // this field is not returned when the variable is created, but
+        // it is returned when the variables are updated
+        // it is returned by gdb mi as a string, and we assume it starts out in scope
+        new_obj.in_scope = 'true'
+        new_obj.autocreated_for_locals = State.get('expr_autocreated_for_locals')
+
+        new_obj.can_plot = !window.isNaN(parseFloat(new_obj.value)) // can only be plotted if value is numeric
+        new_obj.dom_id_for_plot = new_obj.name.replace(/\./g, '-')  // replace '.' with '-' since '.' does not work in the DOM
+        new_obj.show_plot = false  // used when rendering to decide whether to show plot or not
+        // push to this array each time a new value is assigned if value is numeric.
+        // Plots use this data
+        if(new_obj.value.indexOf('0x') === 0){
+            new_obj.values = [parseInt(new_obj.value, 16)]
+        }else if (!window.isNaN(parseFloat(new_obj.value))){
+            new_obj.values = [new_obj.value]
+        }else{
+            new_obj.values = []
+        }
         return new_obj
     },
     /**
@@ -2161,15 +2164,23 @@ const Expressions = {
             Expressions.plot_var_and_children(obj)
         }
     },
-    make_plot: function(obj){
+    /**
+     * function render a plot on an existing element
+     * @param obj: object to make a plot for
+     */
+    _make_plot: function(obj){
         let id = '#' + obj.dom_id_for_plot  // this div should have been created already
+        , jq = $(id)
         , data = []
         , i = 0
+
+        // collect data
         for(let val of obj.values){
             data.push([i, val])
             i++
         }
-        let jq = $(id)
+
+        // make the plot
         $.plot(jq,
             [
                 {data: data}
@@ -2183,34 +2194,28 @@ const Expressions = {
             }
         )
 
+        // add hover event to show tooltip
         jq.bind('plothover', function (event, pos, item) {
             if (item) {
                 let x = item.datapoint[0]
                 , y = item.datapoint[1]
 
-                // let d = document.getElementById('tooltip')
-                // d.style.position = "absolute";
-                // d.style.left = item.pageY+'px';
-                // d.style.top = item.pageX+5+'px';
-                // console.log(d.style)
-
-                // var d = document.getElementById('tooltip');
-                // d.style.position = "absolute";
-                // d.style.left = 5+'px';
-                // d.style.top = 30+'px';
-                console.log('plotting')
                 $('#tooltip').html(`(${x}, ${y})`)
                     .css({top: item.pageY+5, left: item.pageX+5})
                     .show()
             } else {
                 $("#tooltip").hide();
             }
-        });
+        })
     },
+    /**
+     * look through all expression objects and see if they are supposed to show their plot.
+     * If so, update the dom accordingly
+     * @param obj: expression object to plot (may have children to plot too)
+     */
     plot_var_and_children: function(obj){
-
         if(obj.show_plot){
-            Expressions.make_plot(obj)
+            Expressions._make_plot(obj)
         }
         for(let child of obj.children){
             Expressions.plot_var_and_children(child)
@@ -2258,11 +2263,11 @@ const Expressions = {
         if(mi_obj.show_plot){
             // dots are not allowed in the dom as id's. replace with '-'.
             let id = mi_obj.dom_id_for_plot
-            plot_button = `<span class='plot_icon pointer' data-gdb_variable_name='${mi_obj.name}'>hide</span>`
+            plot_button = `<span class='toggle_plot pointer glyphicon glyphicon-ban-circle' data-gdb_variable_name='${mi_obj.name}' title='remove plot'></span>`
             plot_content = `<div id='${id}' class=plot />`
 
         }else if(mi_obj.can_plot && !mi_obj.show_plot){
-            plot_button = `<span class='plot_icon pointer' data-gdb_variable_name='${mi_obj.name}'>plot</span>`
+            plot_button = `<img src='/static/images/ploticon.png' class='toggle_plot pointer' data-gdb_variable_name='${mi_obj.name}' />`
         }
 
         return `<ul class='variable'>
@@ -2325,7 +2330,7 @@ const Expressions = {
             Expressions.fetch_and_show_children_for_var(gdb_var_name)
         }
     },
-    click_plot_icon: function(e){
+    click_toggle_plot: function(e){
         let gdb_var_name = e.currentTarget.dataset.gdb_variable_name
         , expressions = State.get('expressions')
         // get data object, which has field that says whether its expanded or not
@@ -2353,7 +2358,13 @@ const Expressions = {
                 if('value' in changelist){
                     // 'value' is about to be wiped. Save the current value
                     // to the past values
-                    obj.values.push(changelist.value)
+                    if(changelist.value.indexOf('0x') === 0){
+                        obj.can_plot = true
+                        obj.values.push(parseInt(changelist.value, 16))
+                    }else if (!window.isNaN(parseFloat(changelist.value))){
+                        obj.can_plot = true
+                        obj.values.push(changelist.value)
+                    }
                 }
                 // overwrite fields of obj with fields from changelist
                 _.assign(obj, changelist)

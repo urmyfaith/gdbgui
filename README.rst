@@ -199,15 +199,23 @@ With assembly. Note the bold line is the current instruction that gdb is stopped
 
 
 Variables and Expressions
-------------------------------------------------
+-------------------------
+
+All local variables are automatically displayed, and are clickable to explore their fields.
 
 .. image:: https://github.com/cs01/gdbgui/raw/master/screenshots/locals.png
   :target: https://github.com/cs01/gdbgui/raw/master/screenshots/locals.png
 
-All variables and their values are displayed each time gdb pauses. Arbitrary expressions can be evaluated as well.
+Arbitrary expressions can be evaluated as well.
 
 .. image:: https://github.com/cs01/gdbgui/raw/master/screenshots/expressions.png
   :target: https://github.com/cs01/gdbgui/raw/master/screenshots/expressions.png
+
+Expressions record their previous values, and can be displayed in an x/y plot.
+
+.. image:: https://github.com/cs01/gdbgui/raw/master/screenshots/plots.png
+  :target: https://github.com/cs01/gdbgui/raw/master/screenshots/plots.png
+
 
 
 Memory Viewer
