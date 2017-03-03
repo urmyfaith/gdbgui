@@ -2026,9 +2026,11 @@ const Expressions = {
         let new_obj = $.extend(true, {}, obj)
         // obj was copied, now add some additional fields used by gdbgui
 
-        // push to this array each time a new value is assigned if value is numeric
-        // this allows for plotting
-        new_obj.values = _.isNumber(new_obj.value) ? [new_obj.value] : []
+        new_obj.can_plot = typeof parseFloat(new_obj.value) === 'number'  // can only be plotted if value is numeric
+        new_obj.show_plot = false  // used when rendering to decide whether to show plot or not
+        // push to this array each time a new value is assigned if value is numeric.
+        // Plots use the data.
+        new_obj.values = new_obj.can_plot ? [new_obj.value] : []
         new_obj.children = []
         new_obj.show_children_in_ui = false
         // this field is not returned when the variable is created, but
@@ -2134,23 +2136,47 @@ const Expressions = {
         const is_root = true
 
         let sorted_expression_objs = _.sortBy(State.get('expressions'), unsorted_obj => unsorted_obj.expression)
+        // only render variables in scope that were not created for the Locals component
+        , objs_to_render = sorted_expression_objs.filter(obj => obj.in_scope === 'true' && obj.autocreated_for_locals === false)
+        , objs_to_delete = sorted_expression_objs.filter(obj => obj.in_scope === 'invalid')
 
-        for(let obj of sorted_expression_objs){
-            // only render variables in scope that were not created for the Locals component
-            if(obj.in_scope === 'true' && obj.autocreated_for_locals === false){
-                if(obj.numchild > 0) {
-                    html += Expressions.get_ul_for_var_with_children(obj.expression, obj, is_root, true)
-                }else{
-                    html += Expressions.get_ul_for_var_without_children(obj.expression, obj, is_root, true)
-                }
-            }else if (obj.in_scope === 'invalid'){
-                Expressions.delete_gdb_variable(obj.name)
+        // delete invalid objects
+        objs_to_delete.map(obj => Expressions.delete_gdb_variable(obj.name))
+
+        for(let obj of objs_to_render){
+            if(obj.numchild > 0) {
+                html += Expressions.get_ul_for_var_with_children(obj.expression, obj, is_root, true)
+            }else{
+                html += Expressions.get_ul_for_var_without_children(obj.expression, obj, is_root, true)
             }
         }
         if(html === ''){
             html = '<span class=placeholder>no expressions in this context</span>'
         }
         Expressions.el.html(html)
+
+        for(let obj of objs_to_render){
+            Expressions.plot_var_and_children(obj)
+        }
+    },
+    make_plot: function(obj){
+            let id = '#' + obj.name
+            , data = []
+            , i = 0
+            for(let val of obj.values){
+                data.push([i, val])
+            }
+            console.log('plot to id' + id)
+            console.log(data)
+            $.plot(id, data);
+    },
+    plot_var_and_children: function(obj){
+        for(let child of obj.children){
+            if(child.children.length > 0){
+                Expressions.plot_children(child)
+            }
+            if()
+        }
     },
     /**
      * get unordered list for a variable that has children
@@ -2189,6 +2215,16 @@ const Expressions = {
             delete_button = is_root ? `<span class='glyphicon glyphicon-trash delete_gdb_variable pointer' data-gdb_variable='${mi_obj.name}' />` : ''
             ,toggle_classes = numchild > 0 ? 'toggle_children_visibility pointer' : ''
             , val = _.isString(mi_obj.value) ? Memory.make_addrs_into_links(mi_obj.value) : mi_obj.value
+            , plot_content = ''
+
+        if(mi_obj.show_plot){
+            plot_content = `<span class='plot_icon pointer' data-gdb_variable_name='${mi_obj.name}'>hide</span>
+            <div id='${mi_obj.name}' />
+            `
+
+        }else if(mi_obj.can_plot && !mi_obj.show_plot){
+            plot_content = `<span class='plot_icon pointer' data-gdb_variable_name='${mi_obj.name}'>plot</span>`
+        }
 
         return `<ul class='variable'>
             <li>
@@ -2202,10 +2238,11 @@ const Expressions = {
                     ${Util.escape(mi_obj.type || '')}
                 </span>
 
-                <span class='plot_icon pointer' data-gdb_variable_name='${mi_obj.name}'>plot</span>
 
-
-                ${delete_button}
+                <div class='right_help_icon_show_on_hover'>
+                    ${plot_content}
+                    ${delete_button}
+                </div>
 
             </li>
             ${child_tree}
@@ -2249,17 +2286,11 @@ const Expressions = {
     },
     click_plot_icon: function(e){
         let gdb_var_name = e.currentTarget.dataset.gdb_variable_name
+        , expressions = State.get('expressions')
         // get data object, which has field that says whether its expanded or not
-        , obj = Expressions.get_obj_from_gdb_var_name(State.get('expressions'), gdb_var_name)
-
-        var data = {
-          labels: [obj.name],
-          series: [
-            obj.values
-          ]
-        };
-
-        new Chartist.Line('.ct-chart', data, {});
+        , obj = Expressions.get_obj_from_gdb_var_name(expressions, gdb_var_name)
+        obj.show_plot = !obj.show_plot
+        State.set('expressions', expressions)
     },
     /**
      * Send command to gdb to give us all the children and values
