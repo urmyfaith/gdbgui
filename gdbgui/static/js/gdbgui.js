@@ -2183,7 +2183,9 @@ const Expressions = {
         // make the plot
         $.plot(jq,
             [
-                {data: data}
+                {data: data,
+                shadowSize: 0,
+                color: '#33cdff'}
             ],
             {
                 series: {

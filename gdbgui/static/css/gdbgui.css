@@ -271,10 +271,10 @@ ul.variable{
 }
 #tooltip{
   position: fixed;
-  border: 1px solid #fdd;
+  display: none;
+  border: 1px solid #828282;
   padding: 2px;
-  background-color: #fee;
-  opacity: 0.80;
+  background-color: #f5f5f5;
 }
 #threads ul{
   list-style: none;
